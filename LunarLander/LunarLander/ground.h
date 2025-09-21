@@ -61,6 +61,7 @@ private:
    void generateTerrain();
    void generatePlatform();
    void smoothTerrain();
+   void addTerrainFeatures();
    
    // Helper functions for memory management - FIXED: Added proper helpers
    void allocateGround(int size);

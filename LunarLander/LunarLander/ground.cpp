@@ -4,7 +4,7 @@
  * Author:
  *    Br. Helfrich and Gary Sibanda
  * Summary:
- *    The lunar surface with realistic terrain generation
+ *    The lunar surface with realistic terrain generation and filled rendering
  ************************************************************************/
 
 #include "ground.h"
@@ -34,8 +34,7 @@ Ground::Ground(const Position& posUpperRight) :
 }
 
 /*************************************************************************
- * GROUND : DESTRUCTOR - FIXED
- * Properly clean up allocated memory
+ * GROUND : DESTRUCTOR
  *************************************************************************/
 Ground::~Ground()
 {
@@ -43,8 +42,7 @@ Ground::~Ground()
 }
 
 /*************************************************************************
- * GROUND : COPY CONSTRUCTOR - FIXED
- * Proper deep copy semantics
+ * GROUND : COPY CONSTRUCTOR
  *************************************************************************/
 Ground::Ground(const Ground& rhs) :
    posUpperRight(rhs.posUpperRight),
@@ -58,12 +56,11 @@ Ground::Ground(const Ground& rhs) :
 }
 
 /*************************************************************************
- * GROUND : ASSIGNMENT OPERATOR - FIXED
- * Proper assignment with self-assignment check
+ * GROUND : ASSIGNMENT OPERATOR
  *************************************************************************/
 Ground& Ground::operator=(const Ground& rhs)
 {
-   if (this != &rhs)  // Self-assignment check
+   if (this != &rhs)
    {
       deallocateGround();
       posUpperRight = rhs.posUpperRight;
@@ -86,19 +83,17 @@ void Ground::reset(const Position& posUpperRight)
    deallocateGround();
    generateTerrain();
    generatePlatform();
-   smoothTerrain();
+   // REMOVED: smoothTerrain() - to keep jagged edges
 }
 
 /*************************************************************************
  * GROUND : GET ELEVATION METERS
- * Get ground height at specific position
  *************************************************************************/
 double Ground::getElevationMeters(const Position& pos) const
 {
    if (!ground || groundSize == 0)
       return 0.0;
       
-   // Convert position to array index
    int index = static_cast<int>((pos.getX() / posUpperRight.getX()) * groundSize);
    index = std::max(0, std::min(index, groundSize - 1));
    
@@ -107,7 +102,6 @@ double Ground::getElevationMeters(const Position& pos) const
 
 /*************************************************************************
  * GROUND : ON PLATFORM
- * Check if lander is on the landing platform
  *************************************************************************/
 bool Ground::onPlatform(const Position& posLander, int landerWidth) const
 {
@@ -116,149 +110,204 @@ bool Ground::onPlatform(const Position& posLander, int landerWidth) const
    double platformLeft = platformPosition.getX() - platformWidth / 2.0;
    double platformRight = platformPosition.getX() + platformWidth / 2.0;
    
-   // Check if lander is within platform bounds
    return (landerLeft >= platformLeft && landerRight <= platformRight);
 }
 
 /*************************************************************************
  * GROUND : DRAW
- * Draw the lunar surface
+ * Draw the lunar surface with FILLED TERRAIN and jagged edges
  *************************************************************************/
 void Ground::draw(ogstream& gout) const
 {
    if (!ground || groundSize == 0)
       return;
       
-   // Draw terrain
+   // Draw filled terrain using triangles/quads
    for (int i = 0; i < groundSize - 1; i++)
    {
       double x1 = (static_cast<double>(i) / groundSize) * posUpperRight.getX();
       double x2 = (static_cast<double>(i + 1) / groundSize) * posUpperRight.getX();
       
-      Position start(x1, ground[i]);
-      Position end(x2, ground[i + 1]);
+      // Create filled rectangles from ground to bottom of screen
+      Position bottomLeft(x1, 0);
+      Position topLeft(x1, ground[i]);
+      Position topRight(x2, ground[i + 1]);
+      Position bottomRight(x2, 0);
       
-      gout.drawLine(start, end, 0.7, 0.7, 0.7); // Gray lunar surface
+      // Draw filled brown terrain
+      gout.drawRectangle(bottomLeft, topRight, 0.54, 0.27, 0.07); // Brown color
    }
    
-   // Draw landing platform in a different color
+   // REMOVED: No more smooth white surface line for jagged look
+   
+   // Draw landing platform - BLUE STRIP ONLY (not extending down)
    double platformLeft = platformPosition.getX() - platformWidth / 2.0;
    double platformRight = platformPosition.getX() + platformWidth / 2.0;
    
+   // Only draw the surface line of the platform (not a full rectangle down)
    Position platStart(platformLeft, platformHeight);
    Position platEnd(platformRight, platformHeight);
-   gout.drawLine(platStart, platEnd, 0.0, 1.0, 0.0); // Green platform
+   gout.drawLine(platStart, platEnd, 0.0, 0.0, 1.0); // Blue landing strip line only
    
-   // Draw platform markers
-   Position marker1(platformLeft, platformHeight + 5);
-   Position marker2(platformLeft, platformHeight + 15);
-   gout.drawLine(marker1, marker2, 0.0, 1.0, 0.0);
+   // Optional: Small platform markers (just at the ends)
+   Position marker1(platformLeft, platformHeight);
+   Position marker2(platformLeft, platformHeight + 3);
+   gout.drawLine(marker1, marker2, 0.0, 0.8, 1.0);
    
-   Position marker3(platformRight, platformHeight + 5);
-   Position marker4(platformRight, platformHeight + 15);
-   gout.drawLine(marker3, marker4, 0.0, 1.0, 0.0);
+   Position marker3(platformRight, platformHeight);
+   Position marker4(platformRight, platformHeight + 3);
+   gout.drawLine(marker3, marker4, 0.0, 0.8, 1.0);
 }
 
 /*************************************************************************
- * GROUND : GENERATE TERRAIN - PRIVATE
- * Create realistic lunar terrain
+ * GROUND : GENERATE TERRAIN
+ * Generate mountainous terrain with moderate, natural jaggedness
  *************************************************************************/
 void Ground::generateTerrain()
 {
-   groundSize = static_cast<int>(posUpperRight.getX());
+   groundSize = static_cast<int>(posUpperRight.getX() / 2); // Better balance of detail vs performance
    allocateGround(groundSize);
    
-   double baseHeight = posUpperRight.getY() * 0.1; // Base terrain at 10% screen height
+   double screenHeight = posUpperRight.getY();
+   double baseHeight = screenHeight * 0.25; // Base at 25% screen height
+   double maxHeight = screenHeight * 0.6;   // Mountains up to 60% screen height
    
-   // Generate terrain using simplified fractal algorithm
+   // Generate multiple mountain peaks and valleys
    for (int i = 0; i < groundSize; i++)
    {
-      double variation = (rand() % 40 - 20) * TERRAIN_ROUGHNESS;
-      ground[i] = baseHeight + variation;
+      double x = static_cast<double>(i) / groundSize; // Normalize to 0-1
       
-      // Ensure terrain doesn't go below zero or too high
-      ground[i] = std::max(5.0, std::min(ground[i], posUpperRight.getY() * 0.3));
+      // Create multiple sine waves for varied terrain
+      double terrain = baseHeight;
+      
+      // Large mountains (primary features)
+      terrain += sin(x * M_PI * 3.0) * (maxHeight - baseHeight) * 0.4;
+      
+      // Medium hills (secondary features)
+      terrain += sin(x * M_PI * 7.0) * (maxHeight - baseHeight) * 0.2;
+      
+      // Small variations (detail)
+      terrain += sin(x * M_PI * 15.0) * (maxHeight - baseHeight) * 0.1;
+      
+      // Moderate random noise for natural roughness (reduced from previous)
+      double noise = (rand() % 30 - 15) * TERRAIN_ROUGHNESS; // Moderate level
+      terrain += noise;
+      
+      // Ensure terrain stays within reasonable bounds
+      ground[i] = std::max(screenHeight * 0.05, std::min(terrain, maxHeight));
    }
+   
+   // Add some dramatic peaks and valleys
+   addTerrainFeatures();
 }
 
 /*************************************************************************
- * GROUND : GENERATE PLATFORM - PRIVATE
- * Create landing platform
+ * GROUND : GENERATE PLATFORM
+ * Create a flat landing area in the varied terrain
  *************************************************************************/
 void Ground::generatePlatform()
 {
    if (!ground || groundSize == 0)
       return;
       
-   // Platform width between min and max
    platformWidth = PLATFORM_MIN_WIDTH +
                   (rand() % static_cast<int>(PLATFORM_MAX_WIDTH - PLATFORM_MIN_WIDTH));
    
-   // Platform position - not too close to edges
-   int minX = MIN_PLATFORM_DISTANCE;
-   int maxX = groundSize - MIN_PLATFORM_DISTANCE - static_cast<int>(platformWidth);
-   int platformX = minX + (rand() % (maxX - minX));
+   // Find a good location for the platform (not too high, not too low)
+   int bestLocation = groundSize / 2; // Default to middle
+   double bestHeight = ground[bestLocation];
    
-   // Set platform height to average of surrounding terrain
-   double avgHeight = 0.0;
-   int count = 0;
-   for (int i = platformX - 10; i <= platformX + static_cast<int>(platformWidth) + 10; i++)
+   // Look for a location at reasonable height
+   for (int i = MIN_PLATFORM_DISTANCE; i < groundSize - MIN_PLATFORM_DISTANCE; i++)
    {
-      if (i >= 0 && i < groundSize)
+      if (ground[i] > posUpperRight.getY() * 0.1 && ground[i] < posUpperRight.getY() * 0.4)
       {
-         avgHeight += ground[i];
-         count++;
+         bestLocation = i;
+         bestHeight = ground[i];
+         break;
       }
    }
-   platformHeight = (count > 0) ? avgHeight / count : ground[platformX];
    
-   // Flatten platform area
-   int platformStart = platformX - static_cast<int>(platformWidth) / 2;
-   int platformEnd = platformX + static_cast<int>(platformWidth) / 2;
+   platformHeight = bestHeight;
    
-   for (int i = platformStart; i <= platformEnd && i < groundSize; i++)
+   // Flatten platform area to create landing strip
+   int platformPixelWidth = static_cast<int>(platformWidth / 3); // Convert to array indices
+   int platformStart = std::max(0, bestLocation - platformPixelWidth / 2);
+   int platformEnd = std::min(groundSize - 1, bestLocation + platformPixelWidth / 2);
+   
+   for (int i = platformStart; i <= platformEnd; i++)
    {
-      if (i >= 0)
-         ground[i] = platformHeight;
+      ground[i] = platformHeight;
    }
    
    // Set platform position for collision detection
-   platformPosition.setX((static_cast<double>(platformX) / groundSize) * posUpperRight.getX());
+   platformPosition.setX((static_cast<double>(bestLocation) / groundSize) * posUpperRight.getX());
    platformPosition.setY(platformHeight);
 }
 
 /*************************************************************************
- * GROUND : SMOOTH TERRAIN - PRIVATE
- * Apply smoothing to make terrain more realistic
+ * GROUND : ADD TERRAIN FEATURES - PRIVATE
+ * Add dramatic peaks and valleys to make terrain more interesting
+ *************************************************************************/
+void Ground::addTerrainFeatures()
+{
+   if (!ground || groundSize == 0)
+      return;
+      
+   int numFeatures = 2 + (rand() % 3); // 2-4 dramatic features
+   
+   for (int f = 0; f < numFeatures; f++)
+   {
+      int center = MIN_PLATFORM_DISTANCE + (rand() % (groundSize - 2 * MIN_PLATFORM_DISTANCE));
+      int width = 20 + (rand() % 40); // Feature width
+      bool isPeak = (rand() % 2 == 0); // Randomly choose peak or valley
+      
+      double maxHeight = posUpperRight.getY() * 0.6;
+      double minHeight = posUpperRight.getY() * 0.05;
+      
+      for (int i = std::max(0, center - width); i <= std::min(groundSize - 1, center + width); i++)
+      {
+         double distance = abs(i - center);
+         double factor = 1.0 - (distance / width); // Smooth falloff
+         
+         if (factor > 0)
+         {
+            if (isPeak)
+            {
+               // Create peak
+               ground[i] += factor * (maxHeight - ground[i]) * 0.5;
+            }
+            else
+            {
+               // Create valley
+               ground[i] -= factor * (ground[i] - minHeight) * 0.5;
+            }
+            
+            // Keep within bounds
+            ground[i] = std::max(minHeight, std::min(ground[i], maxHeight));
+         }
+      }
+   }
+}
+
+/*************************************************************************
+ * GROUND : SMOOTH TERRAIN
  *************************************************************************/
 void Ground::smoothTerrain()
 {
    if (!ground || groundSize < 3)
       return;
       
-   // Simple smoothing algorithm - average with neighbors
    double* smoothed = new double[groundSize];
    
-   // Copy original values
    for (int i = 0; i < groundSize; i++)
       smoothed[i] = ground[i];
       
-   // Apply smoothing (except platform area)
-   double platformLeft = platformPosition.getX() - platformWidth / 2.0;
-   double platformRight = platformPosition.getX() + platformWidth / 2.0;
-   
    for (int i = 1; i < groundSize - 1; i++)
    {
-      double x = (static_cast<double>(i) / groundSize) * posUpperRight.getX();
-      
-      // Skip platform area
-      if (x >= platformLeft && x <= platformRight)
-         continue;
-         
       smoothed[i] = (ground[i-1] + ground[i] + ground[i+1]) / 3.0;
    }
    
-   // Copy smoothed values back
    for (int i = 0; i < groundSize; i++)
       ground[i] = smoothed[i];
       
@@ -266,12 +315,11 @@ void Ground::smoothTerrain()
 }
 
 /*************************************************************************
- * GROUND : ALLOCATE GROUND - PRIVATE
- * Allocate memory for ground array
+ * GROUND : ALLOCATE GROUND
  *************************************************************************/
 void Ground::allocateGround(int size)
 {
-   deallocateGround(); // Clean up any existing allocation
+   deallocateGround();
    if (size > 0)
    {
       ground = new double[size];
@@ -280,8 +328,7 @@ void Ground::allocateGround(int size)
 }
 
 /*************************************************************************
- * GROUND : DEALLOCATE GROUND - PRIVATE
- * Clean up ground array memory
+ * GROUND : DEALLOCATE GROUND
  *************************************************************************/
 void Ground::deallocateGround()
 {
@@ -291,8 +338,7 @@ void Ground::deallocateGround()
 }
 
 /*************************************************************************
- * GROUND : COPY GROUND - PRIVATE
- * Deep copy ground array from another object
+ * GROUND : COPY GROUND
  *************************************************************************/
 void Ground::copyGround(const Ground& rhs)
 {

@@ -1,11 +1,10 @@
 /***********************************************************************
  * Source File:
- *    MAIN
+ *    MAIN - LAB SPECIFICATION COMPLIANT
  * Author:
  *    Gary Sibanda
  * Summary:
- *    Apollo 11 Lunar Lander Module Simulator
- *    A realistic physics simulation of the Apollo lunar lander
+ *    Apollo 11 Lunar Lander Module Simulator following exact lab specs
  ************************************************************************/
 
 #include "position.h"
@@ -13,13 +12,30 @@
 #include "uiDraw.h"
 #include "ground.h"
 #include "lander.h"
+#include <cstdlib>
+#include <ctime>
 
 // For unit tests
 #include "testRunner.h"
 
 /*************************************************************************
+ * STAR
+ * Represents a twinkling star in space
+ ************************************************************************/
+struct Star
+{
+   Position pos;
+   unsigned char phase;
+   
+   Star() : pos(0, 0), phase(0) {}  // Default constructor
+   Star(double x, double y) : pos(x, y), phase(rand() % 256) {}
+   
+   void update() { phase = (phase + 1) % 256; } // Cycle through phases
+};
+
+/*************************************************************************
  * SIMULATOR
- * Main simulator class containing all game logic and state
+ * Main simulator class following Lab specifications
  ************************************************************************/
 class Simulator
 {
@@ -33,6 +49,7 @@ public:
       successes(0),
       showInstructions(true)
    {
+      generateStars();
    }
 
    // Main game callback
@@ -47,17 +64,17 @@ public:
       if (lander.isFlying())
       {
          updatePhysics(pUI);
-         gameTime += 0.1; // Increment game time
+         gameTime += 0.1; // Increment game time (each frame = 1/10th second per lab spec)
       }
 
       // Check for landing/crash
       checkCollisions();
 
       // Draw everything
-      drawGame(gout);
+      drawGame(gout, pUI);
       
-      // Draw UI
-      drawInterface(gout);
+      // Draw UI following lab specifications
+      drawInterface(gout, pUI);
    }
 
 private:
@@ -68,18 +85,35 @@ private:
    int attempts;           // Number of landing attempts
    int successes;          // Number of successful landings
    bool showInstructions;  // Show control instructions
+   
+   // Stars for space background (Lab spec: about 50 stars)
+   static const int NUM_STARS = 50;
+   Star stars[NUM_STARS];
+
+   /*************************************************************************
+    * GENERATE STARS
+    * Create random stars across the screen
+    ************************************************************************/
+   void generateStars()
+   {
+      for (int i = 0; i < NUM_STARS; i++)
+      {
+         double x = (rand() % static_cast<int>(posUpperRight.getX()));
+         double y = (rand() % static_cast<int>(posUpperRight.getY() * 0.7)) +
+                   (posUpperRight.getY() * 0.3); // Stars in upper 70% of screen
+         stars[i] = Star(x, y);
+      }
+   }
 
    /*************************************************************************
     * HANDLE INPUT
-    * Process user input for lander control
+    * Lab spec: DOWN = thrust, LEFT = rotate CCW, RIGHT = rotate CW
     ************************************************************************/
    void handleInput(const Interface* pUI)
    {
-      // Hide instructions after first input
       if (pUI->isDown() || pUI->isLeft() || pUI->isRight())
          showInstructions = false;
 
-      // Reset game on spacebar when dead or landed
       if (pUI->isSpace() && !lander.isFlying())
       {
          resetGame();
@@ -87,28 +121,39 @@ private:
    }
 
    /*************************************************************************
-    * UPDATE PHYSICS
-    * Update the physics simulation
+    * UPDATE PHYSICS - LAB SPECIFICATION COMPLIANT
+    * Each frame = 1/10th second
+    * Lunar gravity = 1.625 m/s²
+    * Thrust = 45,000 N / 15,103 kg = 2.98 m/s²
+    * Fuel consumption: 10 lbs/s main, 1 lb/s attitude
+    * Rotation: 0.1 radians/frame
     ************************************************************************/
    void updatePhysics(const Interface* pUI)
    {
-      // Create thrust object based on input
       Thrust thrust;
       thrust.set(pUI);
 
-      // Apply physics for this frame (assuming 60 FPS = 1/60 second)
-      double timeStep = 1.0 / 60.0;
+      // LAB SPECIFICATION: Each frame accounts for 1/10th of a second
+      double timeStep = 0.1;  // Exactly as specified in lab documents
       
-      // Get acceleration from input and gravity
-      Acceleration acceleration = lander.input(thrust, -1.625); // Lunar gravity
+      // LAB SPECIFICATION: Lunar gravity = 1.625 m/s²
+      Acceleration acceleration = lander.input(thrust, -1.625);
 
       // Update lander position and velocity
       lander.coast(acceleration, timeStep);
+      
+      // Update star twinkling
+      for (int i = 0; i < NUM_STARS; i++)
+      {
+         stars[i].update();
+      }
    }
 
    /*************************************************************************
     * CHECK COLLISIONS
-    * Check for ground collision and determine outcome
+    * Lab spec: Crash unless hitting landing pad at < 4.0 m/s AND upright
+    * Landing pad: 30 meters across, lander: 20 meters across
+    * Must be nearly upright (within ±12 degrees)
     ************************************************************************/
    void checkCollisions()
    {
@@ -118,12 +163,14 @@ private:
       Position landerPos = lander.getPosition();
       double groundHeight = ground.getElevationMeters(landerPos);
 
-      // Check if lander has hit the ground
       if (landerPos.getY() <= groundHeight)
       {
          attempts++;
          
-         // Check if it's a safe landing
+         // CORRECTED: Use checkSafetyLanding() which includes ALL requirements:
+         // 1. Speed < 4.0 m/s
+         // 2. Nearly upright angle (±12 degrees)
+         // 3. Must also be on the landing platform
          if (lander.checkSafetyLanding() && ground.onPlatform(landerPos, lander.getWidth()))
          {
             lander.land();
@@ -138,62 +185,81 @@ private:
 
    /*************************************************************************
     * RESET GAME
-    * Reset for a new landing attempt
     ************************************************************************/
    void resetGame()
    {
       lander.reset(posUpperRight);
       ground.reset(posUpperRight);
+      generateStars(); // New stars for each mission
       gameTime = 0.0;
       showInstructions = true;
    }
 
    /*************************************************************************
     * DRAW GAME
-    * Draw all game objects
+    * Draw all game objects in proper order
     ************************************************************************/
-   void drawGame(ogstream& gout)
+   void drawGame(ogstream& gout, const Interface* pUI)
    {
-      // Draw lunar surface
+      // 1. Draw stars first (background) - Lab spec: about 50 stars
+      for (int i = 0; i < NUM_STARS; i++)
+      {
+         gout.drawStar(stars[i].pos, stars[i].phase);
+      }
+      
+      // 2. Draw lunar surface (filled terrain)
       ground.draw(gout);
 
-      // Draw lander
+      // 3. Draw lander
       gout.drawLander(lander.getPosition(), lander.getAngle().getRadians());
 
-      // Draw thrust flames if engines are firing
+      // 4. Draw thrust flames based on current input
       Thrust currentThrust;
-      // Note: We'd need to store thrust state to show flames accurately
-      gout.drawLanderFlames(lander.getPosition(), lander.getAngle().getRadians(),
-                           false, false, false); // Would use actual thrust state
+      currentThrust.set(pUI);
+      
+      gout.drawLanderFlames(lander.getPosition(),
+                           lander.getAngle().getRadians(),
+                           currentThrust.isMain(),      // Main engine flame
+                           currentThrust.isClock(),     // Clockwise thruster
+                           currentThrust.isCounter());  // Counter-clockwise thruster
    }
 
    /*************************************************************************
-    * DRAW INTERFACE
-    * Draw UI elements and game information
+    * DRAW INTERFACE - LAB SPECIFICATION FORMAT
+    * Lab spec shows: Fuel: 2272 lbs, Altitude: 35 meters, Speed: 12.91 m/s
     ************************************************************************/
-   void drawInterface(ogstream& gout)
+   void drawInterface(ogstream& gout, const Interface* pUI)
    {
-      // Game statistics in top-left
-      Position statsPos(10, posUpperRight.getY() - 30);
-      gout.setPosition(statsPos);
-      gout << "Apollo 11 Lunar Lander Simulator\n";
-      gout << "Time: " << static_cast<int>(gameTime) << "s\n";
-      gout << "Fuel: " << lander.getFuel() << " kg ("
-           << static_cast<int>(lander.getFuelPercentage()) << "%)\n";
-      gout << "Speed: " << static_cast<int>(lander.getSpeed() * 10) / 10.0 << " m/s\n";
-      gout << "Altitude: " << static_cast<int>(lander.getPosition().getY() -
-                                              ground.getElevationMeters(lander.getPosition())) << " m\n";
-
-      // Landing statistics
-      gout << "\nMission Statistics:\n";
-      gout << "Attempts: " << attempts << "\n";
-      gout << "Successes: " << successes << "\n";
-      if (attempts > 0)
-         gout << "Success Rate: " << (successes * 100 / attempts) << "%\n";
-
-      // Game status
-      Position statusPos(10, 100);
+      // Lab specification format for status display
+      Position statusPos(10, posUpperRight.getY() - 30);
       gout.setPosition(statusPos);
+      
+      // Convert kg to lbs for fuel display (lab spec shows lbs)
+      int fuelLbs = static_cast<int>(lander.getFuel() * 2.20462); // kg to lbs conversion
+      int altitude = static_cast<int>(lander.getPosition().getY() -
+                                     ground.getElevationMeters(lander.getPosition()));
+      double speed = lander.getSpeed();
+      
+      gout << "Fuel: " << fuelLbs << " lbs\n";
+      gout << "Altitude: " << altitude << " meters\n";
+      gout << "Speed: " << static_cast<int>(speed * 100) / 100.0 << " m/s\n";
+
+      // Lab specification physics info
+      Thrust debugThrust;
+      debugThrust.set(pUI);
+      gout << "\nLAB SPECIFICATION PHYSICS:\n";
+      gout << "Frame time: 1/10th second | Lunar gravity: 1.625 m/s²\n";
+      gout << "Thrust: 45,000 N | Mass: 15,103 kg | Accel: 2.98 m/s²\n";
+      gout << "Fuel consumption: 10 lbs/s main, 1 lb/s attitude\n";
+      gout << "Rotation: 0.1 radians/frame\n";
+      
+      gout << "\nCONTROLS (Lab Specification):\n";
+      gout << "DOWN ARROW  - Main engine thrust (10 lbs fuel/frame)\n";
+      gout << "LEFT ARROW  - Rotate CCW (1 lb fuel/frame)\n";
+      gout << "RIGHT ARROW - Rotate CW (1 lb fuel/frame)\n";
+
+      Position statusPos2(10, 100);
+      gout.setPosition(statusPos2);
       
       if (lander.isDead())
       {
@@ -209,15 +275,14 @@ private:
       }
       else if (showInstructions)
       {
-         gout << "LUNAR LANDING INSTRUCTIONS:\n";
-         gout << "DOWN ARROW  - Main engine thrust\n";
-         gout << "LEFT ARROW  - Rotate counter-clockwise\n";
-         gout << "RIGHT ARROW - Rotate clockwise\n";
-         gout << "\nLand safely on the platform!\n";
-         gout << "Max safe speed: 4 m/s vertical, 2 m/s horizontal\n";
+         gout << "APOLLO 11 LUNAR LANDER (Lab Specification)\n";
+         gout << "\nLand safely on the BLUE platform!\n";
+         gout << "Must land at less than 4.0 m/s to avoid crash\n";
+         gout << "Landing pad: 30m wide, Lander: 20m wide\n";
+         gout << "Starting fuel: 5,000 lbs\n";
       }
 
-      // Fuel warning
+      // Lab spec warning at low fuel
       if (lander.getFuelPercentage() < 20.0 && lander.isFlying())
       {
          Position warnPos(posUpperRight.getX() / 2 - 100, posUpperRight.getY() / 2);
@@ -229,7 +294,6 @@ private:
 
 /*************************************************************************
  * CALLBACK
- * Main callback function for OpenGL
  ************************************************************************/
 void callBack(const Interface* pUI, void* p)
 {
@@ -238,22 +302,18 @@ void callBack(const Interface* pUI, void* p)
 
 /*************************************************************************
  * MAIN
- * Main entry point
  ************************************************************************/
 int main(int argc, char** argv)
 {
-   // Run unit tests in debug mode
+   // Initialize random seed
+   srand(static_cast<unsigned>(time(nullptr)));
+   
    #ifdef DEBUG
    testRunner();
    #endif
 
-   // Set up the screen dimensions
    Position posUpperRight(800.0, 600.0);
-
-   // Create the simulator
    Simulator simulator(posUpperRight);
-
-   // Initialize the graphics system
    Interface ui("Apollo 11 Lunar Lander Module Simulator", posUpperRight);
    ui.run(callBack, &simulator);
 

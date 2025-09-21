@@ -31,6 +31,12 @@ class Lander
    friend TestLander;
    
 public:
+   Position pos;        // position of the lander - PUBLIC for tests
+   Velocity velocity;   // velocity of the lander - PUBLIC for tests
+   Angle angle;         // orientation of the lander - PUBLIC for tests
+   Status status;       // current game state - PUBLIC for tests
+   double fuel;         // remaining fuel in kg - PUBLIC for tests
+
    // Constructor - need to know something about the board
    Lander(const Position& posUpperRight) :
       status(DEAD),
@@ -79,17 +85,8 @@ public:
    // Collision detection
    bool checkGroundCollision(double groundY) const;
    bool checkSafetyLanding() const;
-   
-   // Display information
-   void draw() const;
-   void drawFlames(const Thrust& thrust) const;
 
 private:
-   Position pos;        // position of the lander
-   Velocity velocity;   // velocity of the lander
-   Angle angle;         // orientation of the lander
-   Status status;       // current game state
-   double fuel;         // remaining fuel in kg
    double totalMass;    // total mass including fuel
    double dryMass;      // mass without fuel
    
